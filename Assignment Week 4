@@ -1,0 +1,289 @@
+This is the last assignment for the Coursera course "Advanced Machine Learning and Signal Processing"
+
+Again, please insert to code to your ApacheCouchDB based Cloudant instance below using the "Insert Code" function of Watson Studio (you've done this in Assignment 1 before)
+
+Done, just execute all cells one after the other and you are done - just note that in the last one you should update your email address (the one you've used for coursera) and obtain a submission token, you get this from the programming assignment directly on coursera.
+
+Please fill in the sections labelled with "###YOUR_CODE_GOES_HERE###"
+
+The purpose of this assignment is to learn how feature engineering boosts model performance. You will apply Discrete Fourier Transformation on the accelerometer sensor time series and therefore transforming the dataset from the time to the frequency domain.
+
+After that, you’ll use a classification algorithm of your choice to create a model and submit the new predictions to the grader. Done.
+
+In [1]:
+# The code was removed by DSX for sharing.
+Let's create a SparkSession object and put the Cloudant credentials into it
+
+In [2]:
+spark = SparkSession\
+    .builder\
+    .appName("Cloudant Spark SQL Example in Python using temp tables")\
+    .config("cloudant.host",credentials_1['custom_url'].split('@')[1])\
+    .config("cloudant.username", credentials_1['username'])\
+    .config("cloudant.password",credentials_1['password'])\
+    .getOrCreate()
+Now it’s time to read the sensor data and create a temporary query table.
+
+In [3]:
+df=spark.read.load('shake_classification', "org.apache.bahir.cloudant")
+df.createOrReplaceTempView("df")
+We need to make sure SystemML is installed.
+
+In [4]:
+!pip install systemml
+Collecting systemml
+  Downloading https://files.pythonhosted.org/packages/ec/d4/146cd03f62945bcb1f7cf8fca743e1eeca765e79a0cffe35ce37a65cd78a/systemml-1.1.0.tar.gz (10.5MB)
+    100% |████████████████████████████████| 10.5MB 115kB/s eta 0:00:01
+Requirement already satisfied: numpy>=1.8.2 in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from systemml)
+Requirement already satisfied: scipy>=0.15.1 in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from systemml)
+Requirement already satisfied: pandas in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from systemml)
+Requirement already satisfied: scikit-learn in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from systemml)
+Requirement already satisfied: Pillow>=2.0.0 in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from systemml)
+Requirement already satisfied: python-dateutil>=2 in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from pandas->systemml)
+Requirement already satisfied: pytz>=2011k in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from pandas->systemml)
+Requirement already satisfied: olefile in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from Pillow>=2.0.0->systemml)
+Requirement already satisfied: six>=1.5 in /usr/local/src/conda3_runtime.v38/home/envs/DSX-Python35-Spark/lib/python3.5/site-packages (from python-dateutil>=2->pandas->systemml)
+Building wheels for collected packages: systemml
+  Running setup.py bdist_wheel for systemml ... done
+  Stored in directory: /gpfs/fs01/user/sed3-dfaacfbd5b7e86-34fe57f9860b/.cache/pip/wheels/41/15/aa/437717e51cd25131125b12780c561ccd0de42624d3ca4bad92
+Successfully built systemml
+Installing collected packages: systemml
+Successfully installed systemml-1.1.0
+We’ll use Apache SystemML to implement Discrete Fourier Transformation. This way all computation continues to happen on the Apache Spark cluster for advanced scalability and performance.
+
+In [5]:
+from systemml import MLContext, dml
+ml = MLContext(spark)
+As you’ve learned from the lecture, implementing Discrete Fourier Transformation in a linear algebra programming language is simple. Apache SystemML DML is such a language and as you can see the implementation is straightforward and doesn’t differ too much from the mathematical definition (Just note that the sum operator has been swapped with a vector dot product using the %*% syntax borrowed from R ):
+
+
+
+In [6]:
+dml_script = '''
+PI = 3.141592654
+N = nrow(signal)
+
+n = seq(0, N-1, 1)
+k = seq(0, N-1, 1)
+
+M = (n %*% t(k))*(2*PI/N)
+
+Xa = cos(M) %*% signal
+Xb = sin(M) %*% signal
+
+DFT = cbind(Xa, Xb)
+'''
+Now it’s time to create a function which takes a single row Apache Spark data frame as argument (the one containing the accelerometer measurement time series for one axis) and returns the Fourier transformation of it. In addition, we are adding an index column for later joining all axis together and renaming the columns to appropriate names. The result of this function is an Apache Spark DataFrame containing the Fourier Transformation of its input in two columns.
+
+In [7]:
+from pyspark.sql.functions import monotonically_increasing_id
+
+def dft_systemml(signal,name):
+    prog = dml(dml_script).input('signal', signal).output('DFT')
+    
+    return (
+
+    #execute the script inside the SystemML engine running on top of Apache Spark
+    ml.execute(prog) 
+     
+         #read result from SystemML execution back as SystemML Matrix
+        .get('DFT') 
+     
+         #convert SystemML Matrix to ApacheSpark DataFrame 
+        .toDF() 
+     
+         #rename default column names
+        .selectExpr('C1 as %sa' % (name), 'C2 as %sb' % (name)) 
+     
+         #add unique ID per row for later joining
+        .withColumn("id", monotonically_increasing_id())
+    )
+Now it’s time to create DataFrames containing for each accelerometer sensor axis and one for each class. This means you’ll get 6 DataFrames. Please implement this using the relational API of DataFrames or SparkSQL.
+
+In [51]:
+x0 = spark.sql("SELECT X from df where class = 0")
+y0 = spark.sql("SELECT Y from df where class = 0")
+z0 = spark.sql("SELECT Z from df where class = 0")
+x1 = spark.sql("SELECT X from df where class = 1")
+y1 = spark.sql("SELECT Y from df where class = 1")
+z1 = spark.sql("SELECT Z from df where class = 1")
+Since we’ve created this cool DFT function before, we can just call it for each of the 6 DataFrames now. And since the result of this function call is a DataFrame again we can use the pyspark best practice in simply calling methods on it sequentially. So what we are doing is the following:
+
+Calling DFT for each class and accelerometer sensor axis.
+Joining them together on the ID column.
+Re-adding a column containing the class index.
+Stacking both Dataframes for each classes together
+In [52]:
+from pyspark.sql.functions import lit
+
+df_class_0 = dft_systemml(x0,'x') \
+    .join(dft_systemml(y0,'y'), on=['id'], how='inner') \
+    .join(dft_systemml(z0,'z'), on=['id'], how='inner') \
+    .withColumn('class', lit(0))
+    
+df_class_1 = dft_systemml(x1,'x') \
+    .join(dft_systemml(y1,'y'), on=['id'], how='inner') \
+    .join(dft_systemml(z1,'z'), on=['id'], how='inner') \
+    .withColumn('class', lit(1))
+
+df_dft = df_class_0.union(df_class_1)
+
+df_dft.show()
+[Stage 33:==================================>                      (6 + 3) / 10]
+[Stage 33:=============================================>           (8 + 2) / 10]
+[Stage 33:===================================================>     (9 + 1) / 10]
+SystemML Statistics:
+Total execution time:		3.735 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
+[Stage 37:======================>                                  (4 + 4) / 10]
+[Stage 37:=============================================>           (8 + 2) / 10]
+SystemML Statistics:
+Total execution time:		2.635 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
+[Stage 41:==================================>                      (6 + 4) / 10]
+SystemML Statistics:
+Total execution time:		1.873 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
+[Stage 45:==================================>                      (6 + 4) / 10]
+[Stage 45:=============================================>           (8 + 2) / 10]
+SystemML Statistics:
+Total execution time:		3.462 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
+[Stage 49:==================================>                      (6 + 4) / 10]
+[Stage 49:=============================================>           (8 + 2) / 10]
+SystemML Statistics:
+Total execution time:		3.771 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
+SystemML Statistics:
+Total execution time:		1.936 sec.
+Number of executed Spark inst:	0.
+
+                                                                                
+
++-----------+-------------------+--------------------+-------------------+--------------------+-------------------+-------------------+-----+
+|         id|                 xa|                  xb|                 ya|                  yb|                 za|                 zb|class|
++-----------+-------------------+--------------------+-------------------+--------------------+-------------------+-------------------+-----+
+|         26| -3.360800898664465| -6.3797317149067485| -3.360800898664465| -6.3797317149067485| -3.360800898664465|-6.3797317149067485|    0|
+|         29| -5.047731979774799| -1.1307512205268118| -5.047731979774799| -1.1307512205268118| -5.417880866455836| -7.919430586183089|    0|
+| 8589934658|  4.579763037629146|   7.943098790523183|  4.579763037629146|   7.943098790523183|  4.579763037629146|  7.943098790523183|    0|
+|17179869487|-10.556550769571798| -13.558586167882687|-10.556550769571798| -13.558586167882687|-10.556550769571798|-13.558586167882687|    0|
+|         65|  -7.71014046469968|-0.18711920155456543|  -7.71014046469968|-0.18711920155456543| -5.251000332664313|  2.546895000025506|    0|
+|        191|-2.8164791697168265| -2.5301118232944386|-2.8164791697168265| -2.5301118232944386|-2.8164791697168265|-2.5301118232944386|    0|
+| 8589934785|-0.5946195724559113|    -5.2947491574761|-0.5946195724559113|    -5.2947491574761|-0.5946195724559113|   -5.2947491574761|    0|
+|17179869191| -3.302515440259334|  -13.07505009089483| -3.302515440259334|  -13.07505009089483| -3.302515440259334| -13.07505009089483|    0|
+|17179869384| 0.6040148355417065| -1.9234805335260552| 0.6040148355417065| -1.9234805335260552| 0.6040148355417065|-1.9234805335260552|    0|
+|25769803846| 16.182159099492566|   5.188520676276266| 16.182159099492566|   5.188520676276266| 16.182159099492566|  5.188520676276266|    0|
+|25769803859| -3.363525309265979|   4.210538369658848|   8.54394430007944|  -6.881372790138105| -3.363525309265979|  4.210538369658848|    0|
+|25769803984|  -8.58338347436126|   3.040530076102451|  -8.58338347436126|   3.040530076102451|  -8.58338347436126|  3.040530076102451|    0|
+|25769804049| -9.614694018459236|  3.6745261545706667| -9.614694018459236|  3.6745261545706667| -9.614694018459236| 3.6745261545706667|    0|
+|        222| 1.8336539759998844|   5.985688200261561| 1.8336539759998844|   5.985688200261561| 1.8336539759998844|  5.985688200261561|    0|
+|        270|   5.42590644529074|   6.173367146587013|   5.42590644529074|   6.173367146587013| -7.808590010382046| -2.833917177849836|    0|
+|        293|-0.9182250413270229|   4.690837860135984|-0.9182250413270229|   4.690837860135984|-0.9182250413270229|  4.690837860135984|    0|
+|17179869241| 0.4353215919237369|  16.454054434816438| 12.626520761546784|   5.160268790212876| 0.4353215919237369| 16.454054434816438|    0|
+|17179869405| 3.4709340274138483|  2.6557211021637723| 3.4709340274138483|  2.6557211021637723| 3.4709340274138483| 2.6557211021637723|    0|
+|17179869430|  5.418436226701438|   8.442793646255575|  5.418436226701438|   8.442793646255575|  5.418436226701438|  8.442793646255575|    0|
+|17179869435| -8.423238563807086|   6.763539418232842| -8.423238563807086|   6.763539418232842| -8.423238563807086|  6.763539418232842|    0|
++-----------+-------------------+--------------------+-------------------+--------------------+-------------------+-------------------+-----+
+only showing top 20 rows
+
+Please create a VectorAssembler which consumes the newly created DFT columns and produces a column “features”
+
+In [71]:
+from pyspark.ml.feature import VectorAssembler
+vectorAssembler = VectorAssembler(
+    inputCols=["xa", "xb", "ya", "yb", "za", "zb"],
+    outputCol="features")
+Please insatiate a classifier from the SparkML package and assign it to the classifier variable. Make sure to set the “class” column as target.
+
+In [72]:
+from pyspark.ml.classification import RandomForestClassifier
+classifier = RandomForestClassifier(labelCol="class", featuresCol="features", numTrees=10)
+Let’s train and evaluate…
+
+In [73]:
+from pyspark.ml import Pipeline
+pipeline = Pipeline(stages=[vectorAssembler, classifier])
+In [74]:
+model = pipeline.fit(df_dft)
+In [75]:
+prediction = model.transform(df_dft)
+In [76]:
+prediction.show()
++-----------+-------------------+-------------------+-------------------+--------------------+-------------------+-------------------+-----+--------------------+--------------------+--------------------+----------+
+|         id|                 xa|                 xb|                 ya|                  yb|                 za|                 zb|class|            features|       rawPrediction|         probability|prediction|
++-----------+-------------------+-------------------+-------------------+--------------------+-------------------+-------------------+-----+--------------------+--------------------+--------------------+----------+
+|         26| -3.360800898664465|-6.3797317149067485| -3.360800898664465| -6.3797317149067485| -3.360800898664465|-6.3797317149067485|    0|[-3.3608008986644...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|         29| -5.417880866455836| -7.919430586183089| -5.047731979774799| -1.1307512205268118| -5.417880866455836| -7.919430586183089|    0|[-5.4178808664558...|[9.62854940884657...|[0.96285494088465...|       0.0|
+| 8589934658|  4.579763037629146|  7.943098790523183|  4.579763037629146|   7.943098790523183|  4.579763037629146|  7.943098790523183|    0|[4.57976303762914...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869487|-10.556550769571798|-13.558586167882687|-10.556550769571798| -13.558586167882687|-10.556550769571798|-13.558586167882687|    0|[-10.556550769571...|[9.42860638281659...|[0.94286063828165...|       0.0|
+|         65| -5.251000332664313|  2.546895000025506|  -7.71014046469968|-0.18711920155456543| -5.251000332664313|  2.546895000025506|    0|[-5.2510003326643...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|        191|-2.8164791697168265|-2.5301118232944386|-2.8164791697168265| -2.5301118232944386|-2.8164791697168265|-2.5301118232944386|    0|[-2.8164791697168...|[9.62854940884657...|[0.96285494088465...|       0.0|
+| 8589934785| -5.617199956723425| 12.237721154081223|-0.5946195724559113|    -5.2947491574761| -5.617199956723425| 12.237721154081223|    0|[-5.6171999567234...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869191| -3.302515440259334| -13.07505009089483| -3.302515440259334|  -13.07505009089483| -3.302515440259334| -13.07505009089483|    0|[-3.3025154402593...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869384| 0.6040148355417065|-1.9234805335260552| 0.6040148355417065| -1.9234805335260552| 0.6040148355417065|-1.9234805335260552|    0|[0.60401483554170...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|25769803846| 16.182159099492566|  5.188520676276266| 16.182159099492566|   5.188520676276266| 16.182159099492566|  5.188520676276266|    0|[16.1821590994925...|[9.31119495926610...|[0.93111949592661...|       0.0|
+|25769803859| -3.363525309265979|  4.210538369658848|   8.54394430007944|  -6.881372790138105|   8.54394430007944| -6.881372790138105|    0|[-3.3635253092659...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|25769803984|  -8.58338347436126|  3.040530076102451|  -8.58338347436126|   3.040530076102451|  -8.58338347436126|  3.040530076102451|    0|[-8.5833834743612...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|25769804049| -9.614694018459236| 3.6745261545706667| -9.614694018459236|  3.6745261545706667| -9.614694018459236| 3.6745261545706667|    0|[-9.6146940184592...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|        222| 1.8336539759998844|  5.985688200261561| 1.8336539759998844|   5.985688200261561| 1.8336539759998844|  5.985688200261561|    0|[1.83365397599988...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|        270| -7.808590010382046| -2.833917177849836|   5.42590644529074|   6.173367146587013| -7.808590010382046| -2.833917177849836|    0|[-7.8085900103820...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|        293|-0.9182250413270229|  4.690837860135984|-0.9182250413270229|   4.690837860135984|-0.9182250413270229|  4.690837860135984|    0|[-0.9182250413270...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869241| 0.4353215919237369| 16.454054434816438| 12.626520761546784|   5.160268790212876| 0.4353215919237369| 16.454054434816438|    0|[0.43532159192373...|[9.30760486245638...|[0.93076048624563...|       0.0|
+|17179869405| 3.4709340274138483| 2.6557211021637723| 3.4709340274138483|  2.6557211021637723| 3.4709340274138483| 2.6557211021637723|    0|[3.47093402741384...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869430|  5.418436226701438|  8.442793646255575|  5.418436226701438|   8.442793646255575|  5.418436226701438|  8.442793646255575|    0|[5.41843622670143...|[9.62854940884657...|[0.96285494088465...|       0.0|
+|17179869435| -8.423238563807086|  6.763539418232842| -8.423238563807086|   6.763539418232842| -8.423238563807086|  6.763539418232842|    0|[-8.4232385638070...|[9.62854940884657...|[0.96285494088465...|       0.0|
++-----------+-------------------+-------------------+-------------------+--------------------+-------------------+-------------------+-----+--------------------+--------------------+--------------------+----------+
+only showing top 20 rows
+
+In [77]:
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+binEval = MulticlassClassificationEvaluator().setMetricName("accuracy") .setPredictionCol("prediction").setLabelCol("class")
+    
+binEval.evaluate(prediction)
+Out[77]:
+0.9796205200281096
+If you are happy with the result (I’m happy with > 0.8) please submit your solution to the grader by executing the following cells, please don’t forget to obtain an assignment submission token (secret) from the Courera’s graders web page and paste it to the “secret” variable below, including your email address you’ve used for Coursera.
+
+In [78]:
+!rm -Rf a2_m4.json
+In [79]:
+prediction = prediction.repartition(1)
+prediction.write.json('a2_m4.json')
+In [80]:
+!rm -f rklib.py
+!wget https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+--2018-07-29 08:59:23--  https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+Resolving raw.githubusercontent.com (raw.githubusercontent.com)... 151.101.48.133
+Connecting to raw.githubusercontent.com (raw.githubusercontent.com)|151.101.48.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 2029 (2.0K) [text/plain]
+Saving to: ‘rklib.py’
+
+100%[======================================>] 2,029       --.-K/s   in 0s      
+
+2018-07-29 08:59:24 (17.6 MB/s) - ‘rklib.py’ saved [2029/2029]
+
+In [81]:
+!zip -r a2_m4.json.zip a2_m4.json
+  adding: a2_m4.json/ (stored 0%)
+  adding: a2_m4.json/_SUCCESS (stored 0%)
+  adding: a2_m4.json/.part-00000-0d2f190c-397a-4616-bde6-dac241d3283c.json.crc (stored 0%)
+  adding: a2_m4.json/._SUCCESS.crc (stored 0%)
+  adding: a2_m4.json/part-00000-0d2f190c-397a-4616-bde6-dac241d3283c.json (deflated 87%)
+In [82]:
+!base64 a2_m4.json.zip > a2_m4.json.zip.base64
