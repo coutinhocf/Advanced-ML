@@ -1,0 +1,140 @@
+
+This is the second assignment for the Coursera course "Advanced Machine Learning and Signal Processing"
+
+Again, please insert to code to your ApacheCouchDB based Cloudant instance below using the "Insert Code" function of Watson Studio( you've done this in Assignment 1 before)
+
+Done, just execute all cells one after the other and you are done - just note that in the last one you have to update your email address (the one you've used for coursera) and obtain a submission token, you get this from the programming assignment directly on coursera.
+
+Please fill in the sections labelled with "###YOUR_CODE_GOES_HERE###"
+
+In [1]:
+# The code was removed by DSX for sharing.
+Let's create a SparkSession object and put the Cloudant credentials into it
+
+In [2]:
+spark = SparkSession\
+    .builder\
+    .appName("Cloudant Spark SQL Example in Python using temp tables")\
+    .config("cloudant.host",credentials_1['custom_url'].split('@')[1])\
+    .config("cloudant.username", credentials_1['username'])\
+    .config("cloudant.password",credentials_1['password'])\
+    .getOrCreate()
+Now it’s time to have a look at the recorded sensor data. You should see data similar to the one exemplified below….
+
+In [3]:
+df=spark.read.load('shake_classification', "org.apache.bahir.cloudant")
+df.createOrReplaceTempView("df")
+spark.sql("SELECT * from df").show()
++-----+--------+-----+-----+-----+--------------------+--------------------+
+|CLASS|SENSORID|    X|    Y|    Z|                 _id|                _rev|
++-----+--------+-----+-----+-----+--------------------+--------------------+
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk| 0.02| 0.02| 0.02|051264651086a8831...|1-5c4226e5c41f324...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
++-----+--------+-----+-----+-----+--------------------+--------------------+
+only showing top 20 rows
+
+Please create a VectorAssembler which consumed columns X, Y and Z and produces a column “features”
+
+In [4]:
+from pyspark.ml.feature import VectorAssembler
+vectorAssembler = VectorAssembler(inputCols=["X", "Y", "Z"], outputCol="features")
+Please insatiate a classifier from the SparkML package and assign it to the classifier variable. Make sure to either
+
+Rename the “CLASS” column to “label” or
+Specify the label-column correctly to be “CLASS”
+In [5]:
+from pyspark.ml.classification import GBTClassifier
+
+classifier = GBTClassifier(labelCol='CLASS', featuresCol='features', maxIter=10)
+Let’s train and evaluate…
+
+In [6]:
+from pyspark.ml import Pipeline
+pipeline = Pipeline(stages=[vectorAssembler, classifier])
+In [7]:
+model = pipeline.fit(df)
+In [8]:
+prediction = model.transform(df)
+In [9]:
+prediction.show()
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+|CLASS|SENSORID|    X|    Y|    Z|                 _id|                _rev|           features|prediction|
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|       0.0|
+|    0|asdfghjk| 0.02| 0.02| 0.02|051264651086a8831...|1-5c4226e5c41f324...|   [0.02,0.02,0.02]|       0.0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|       0.0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|       0.0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|       0.0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|       0.0|
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+only showing top 20 rows
+
+In [11]:
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+binEval = MulticlassClassificationEvaluator().setMetricName("accuracy") .setPredictionCol("prediction").setLabelCol("CLASS")
+    
+binEval.evaluate(prediction)
+Out[11]:
+0.8555867884750527
+If you are happy with the result (I’m happy with > 0.55) please submit your solution to the grader by executing the following cells, please don’t forget to obtain an assignment submission token (secret) from the Courera’s graders web page and paste it to the “secret” variable below, including your email address you’ve used for Coursera. (0.55 means that you are performing better than random guesses)
+
+In [12]:
+!rm -Rf a2_m2.json
+In [13]:
+prediction = prediction.repartition(1)
+prediction.write.json('a2_m2.json')
+In [14]:
+!rm -f rklib.py
+!wget https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+--2018-07-18 23:44:02--  https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+Resolving raw.githubusercontent.com (raw.githubusercontent.com)... 151.101.48.133
+Connecting to raw.githubusercontent.com (raw.githubusercontent.com)|151.101.48.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 2029 (2.0K) [text/plain]
+Saving to: ‘rklib.py’
+
+100%[======================================>] 2,029       --.-K/s   in 0s      
+
+2018-07-18 23:44:02 (18.4 MB/s) - ‘rklib.py’ saved [2029/2029]
+
+In [15]:
+!zip -r a2_m2.json.zip a2_m2.json
+  adding: a2_m2.json/ (stored 0%)
+  adding: a2_m2.json/.part-00000-319c73a8-667a-4d1b-b66b-6d4a469f5446.json.crc (stored 0%)
+  adding: a2_m2.json/_SUCCESS (stored 0%)
+  adding: a2_m2.json/._SUCCESS.crc (stored 0%)
+  adding: a2_m2.json/part-00000-319c73a8-667a-4d1b-b66b-6d4a469f5446.json (deflated 89%)
+In [16]:
+!base64 a2_m2.json.zip > a2_m2.json.zip.base64
