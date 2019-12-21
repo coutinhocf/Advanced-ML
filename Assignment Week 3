@@ -1,0 +1,161 @@
+This is the third assignment for the Coursera course "Advanced Machine Learning and Signal Processing"
+
+Again, please insert to code to your ApacheCouchDB based Cloudant instance below using the "Insert Code" function of Watson Studio (you've done this in Assignment 1 and 2 before)
+
+Done, just execute all cells one after the other and you are done - just note that in the last one you must update your email address (the one you've used for coursera) and obtain a submission token, you get this from the programming assignment directly on coursera.
+
+Please fill in the sections labelled with "###YOUR_CODE_GOES_HERE###"
+
+In [1]:
+# The code was removed by DSX for sharing.
+Let's create a SparkSession object and put the Cloudant credentials into it
+
+In [2]:
+spark = SparkSession\
+    .builder\
+    .appName("Cloudant Spark SQL Example in Python using temp tables")\
+    .config("cloudant.host",credentials_1['custom_url'].split('@')[1])\
+    .config("cloudant.username", credentials_1['username'])\
+    .config("cloudant.password",credentials_1['password'])\
+    .getOrCreate()
+Now it’s time to have a look at the recorded sensor data. You should see data similar to the one exemplified below….
+
+In [3]:
+df=spark.read.load('shake_classification', "org.apache.bahir.cloudant")
+
+df.createOrReplaceTempView("df")
+spark.sql("SELECT * from df").show()
++-----+--------+-----+-----+-----+--------------------+--------------------+
+|CLASS|SENSORID|    X|    Y|    Z|                 _id|                _rev|
++-----+--------+-----+-----+-----+--------------------+--------------------+
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk| 0.02| 0.02| 0.02|051264651086a8831...|1-5c4226e5c41f324...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|
++-----+--------+-----+-----+-----+--------------------+--------------------+
+only showing top 20 rows
+
+Let’s check if we have balanced classes – this means that we have roughly the same number of examples for each class we want to predict. This is important for classification but also helpful for clustering
+
+In [4]:
+spark.sql("SELECT count(class), class from df group by class").show()
++------------+-----+
+|count(class)|class|
++------------+-----+
+|        1227|    0|
+|        1619|    1|
++------------+-----+
+
+Let's create a VectorAssembler which consumes columns X, Y and Z and produces a column “features”
+
+In [5]:
+from pyspark.ml.feature import VectorAssembler
+vectorAssembler = VectorAssembler(inputCols=["X","Y","Z"],
+                                  outputCol="features")
+Please insatiate a clustering algorithm from the SparkML package and assign it to the clust variable. Here we don’t need to take care of the “CLASS” column since we are in unsupervised learning mode – so let’s pretend to not even have the “CLASS” column for now – but it will become very handy later in assessing the clustering performance. PLEASE NOTE – IN REAL-WORLD SCENARIOS THERE IS NO CLASS COLUMN – THEREFORE YOU CAN’T ASSESS CLASSIFICATION PERFORMANCE USING THIS COLUMN
+
+In [6]:
+from pyspark.ml.clustering import KMeans
+
+clust = KMeans().setK(2).setSeed(1)
+Let’s train...
+
+In [7]:
+from pyspark.ml import Pipeline
+pipeline = Pipeline(stages=[vectorAssembler, clust])
+model = pipeline.fit(df)
+...and evaluate...
+
+In [8]:
+prediction = model.transform(df)
+prediction.show()
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+|CLASS|SENSORID|    X|    Y|    Z|                 _id|                _rev|           features|prediction|
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|         0|
+|    0|asdfghjk| 0.02| 0.02| 0.02|051264651086a8831...|1-5c4226e5c41f324...|   [0.02,0.02,0.02]|         0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|         0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|         0|
+|    0|asdfghjk|-0.01|-0.01|-0.01|051264651086a8831...|1-c1f52a49af5db18...|[-0.01,-0.01,-0.01]|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
+|    0|asdfghjk| 0.01| 0.01| 0.01|051264651086a8831...|1-a4b6e8d60269136...|   [0.01,0.01,0.01]|         0|
+|    0|asdfghjk|  0.0|  0.0|  0.0|051264651086a8831...|1-461daac6b553896...|          (3,[],[])|         0|
++-----+--------+-----+-----+-----+--------------------+--------------------+-------------------+----------+
+only showing top 20 rows
+
+In [9]:
+prediction.createOrReplaceTempView('prediction')
+spark.sql('''
+select max(correct)/max(total) as accuracy from (
+
+    select sum(correct) as correct, count(correct) as total from (
+        select case when class != prediction then 1 else 0 end as correct from prediction 
+    ) 
+    
+    union
+    
+    select sum(correct) as correct, count(correct) as total from (
+        select case when class = prediction then 1 else 0 end as correct from prediction 
+    ) 
+)
+''').rdd.map(lambda row: row.accuracy).collect()[0]
+Out[9]:
+0.6595221363316937
+If you reached at least 55% of accuracy you are fine to submit your predictions to the grader. Otherwise please experiment with parameters setting to your clustering algorithm, use a different algorithm or just re-record your data and try to obtain. In case you are stuck, please use the Coursera Discussion Forum. Please note again – in a real-world scenario there is no way in doing this – since there is no class label in your data. Please have a look at this further reading on clustering performance evaluation https://en.wikipedia.org/wiki/Cluster_analysis#Evaluation_and_assessment
+
+In [10]:
+!rm -Rf a2_m3.json
+In [11]:
+!rm -f rklib.py
+!wget https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+--2018-07-26 00:38:53--  https://raw.githubusercontent.com/romeokienzler/developerWorks/master/coursera/ai/rklib.py
+Resolving raw.githubusercontent.com (raw.githubusercontent.com)... 151.101.48.133
+Connecting to raw.githubusercontent.com (raw.githubusercontent.com)|151.101.48.133|:443... connected.
+HTTP request sent, awaiting response... 200 OK
+Length: 2029 (2.0K) [text/plain]
+Saving to: ‘rklib.py’
+
+100%[======================================>] 2,029       --.-K/s   in 0s      
+
+2018-07-26 00:38:53 (21.5 MB/s) - ‘rklib.py’ saved [2029/2029]
+
+In [12]:
+prediction= prediction.repartition(1)
+prediction.write.json('a2_m3.json')
+In [13]:
+!zip -r a2_m3.json.zip a2_m3.json
+  adding: a2_m3.json/ (stored 0%)
+  adding: a2_m3.json/_SUCCESS (stored 0%)
+  adding: a2_m3.json/._SUCCESS.crc (stored 0%)
+  adding: a2_m3.json/part-00000-eed560ae-5514-42da-8b22-1e41370cf8b7.json (deflated 89%)
+  adding: a2_m3.json/.part-00000-eed560ae-5514-42da-8b22-1e41370cf8b7.json.crc (stored 0%)
+In [14]:
+!base64 a2_m3.json.zip > a2_m3.json.zip.base64
